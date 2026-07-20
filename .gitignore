@@ -1,0 +1,18 @@
+# Python Virtual Environment
+backend/venv/
+backend/__pycache__/
+backend/*.pyc
+
+# Local Vector Database & Temp Storage
+backend/data/lancedb_data/
+backend/temp_*
+
+# Node Dependencies & Next.js Builds
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# OS Metadata Files
+.DS_Store
+Thumbs.db

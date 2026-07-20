@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+langchain-community
+langchain-ollama
+lancedb
+pypdf
+pandas
+python-multipart
