@@ -24,3 +24,31 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.markdown-container ul {
+  list-style-type: disc !important;
+  margin-left: 1.25rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.markdown-container ol {
+  list-style-type: decimal !important;
+  margin-left: 1.25rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.markdown-container li {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+.markdown-container strong {
+  font-weight: 700 !important;
+  color: #111827; /* Dark charcoal color for high visibility text */
+}
+
+.markdown-container p {
+  margin-bottom: 0.75rem !important;
+}

@@ -1,6 +1,8 @@
 "use client";
 import React, { useState } from 'react';
 import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Citation {
   source_file: string;
@@ -60,25 +62,40 @@ export default function ChatPage() {
       {/* Chat History Container */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4 p-2 bg-gray-50 rounded-lg border">
         {messages.map((msg, index) => (
-          <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+  
+        <div 
+            key={`msg-${index}`} 
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+        >
             <div className={`max-w-[75%] rounded-lg p-3 ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white text-gray-800 border'}`}>
-              <p className="text-sm leading-relaxed">{msg.text}</p>
-              
-              {/* Citations Block */}
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                  <span className="font-semibold block mb-1">Sources Verified:</span>
-                  <div className="flex flex-wrap gap-1">
-                    {msg.citations.map((cite, cIdx) => (
-                      <span key={cIdx} className="bg-gray-100 border text-gray-700 px-2 py-0.5 rounded">
-                        📄 {cite.source_file} (Pg. {cite.page})
-                      </span>
-                    ))}
-                  </div>
+            
+            {msg.role === 'user' ? (
+                <p className="text-sm leading-relaxed">{msg.text}</p>
+            ) : (
+                <div className="text-sm leading-relaxed prose max-w-none markdown-container">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {msg.text}
+                </ReactMarkdown>
                 </div>
-              )}
+            )}
+            
+            {/* Citations Block */}
+            {msg.citations && msg.citations.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                <span className="font-semibold block mb-1">Sources Verified:</span>
+                <div className="flex flex-wrap gap-1">
+                    {msg.citations.map((cite, cIdx) => (
+                    // 🌟 FIX: Also verify inner citation listings carry unique keys 🌟
+                    <span key={`cite-${index}-${cIdx}`} className="bg-gray-100 border text-gray-700 px-2 py-0.5 rounded">
+                        📄 {cite.source_file} (Pg. {cite.page})
+                    </span>
+                    ))}
+                </div>
+                </div>
+            )}
+
             </div>
-          </div>
+        </div>
         ))}
         {isLoading && <div className="text-sm text-gray-400 animate-pulse pl-2">AI is analyzing documentation...</div>}
       </div>
