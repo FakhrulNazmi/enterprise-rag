@@ -14,10 +14,7 @@ app = FastAPI(title="Enterprise Local RAG Bot API")
 # --- MANDATORY CORS SECURITY CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",   # Next.js via domain resolution
-        "http://127.0.0.1:3000"    # Next.js via raw loopback IP resolution
-    ],  
+    allow_origins=["http://localhost:3000"],  
     allow_credentials=True,
     allow_methods=["*"],                      
     allow_headers=["*"],                      
@@ -34,13 +31,9 @@ embeddings_model = OllamaEmbeddings(model="nomic-embed-text")
 TABLE_NAME = "pdf_knowledge_base"
 
 def get_or_create_table():
-    global db
-    try:
-        # Open the table directly; if it does not exist, LanceDB throws a ValueError
+    if TABLE_NAME in db.table_names():
         return db.open_table(TABLE_NAME)
-    except Exception:
-        # Fallback if the table schema has not been initialized yet
-        return None
+    return None
 
 # --- API Data Transfer Models ---
 class ChatQuery(BaseModel):
@@ -192,14 +185,18 @@ async def delete_document(payload: DeleteDocRequest):
         raise HTTPException(status_code=404, detail="Database table not initialized.")
         
     try:
-        # Delete only the chunks matching the specified file
+        # Wrap the filename in single quotes inside the SQL where-clause string
+        # This deletes only the chunks that originated from that specific PDF file
         table.delete(f"source = '{payload.filename}'")
         
+        # Double check if table is now completely empty to clean up cleanly
+        if len(table.to_pandas()) == 0:
+            db.drop_table(TABLE_NAME)
+            
         return {"status": "success", "message": f"Successfully deleted all vectors for '{payload.filename}'"}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to remove targeted records: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Failed to remove targeted records: {str(e)}")      
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
