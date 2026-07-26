@@ -6,6 +6,8 @@ backend/*.pyc
 # Local Vector Database & Temp Storage
 backend/data/lancedb_data/
 backend/temp_*
+backend/test.pdf
+backend/seed.py
 
 # Node Dependencies & Next.js Builds
 frontend/node_modules/

@@ -10,14 +10,17 @@ interface ManagedDocument {
 export default function AdminPage() {
   const [file, setFile] = useState<File | null>(null);
   const [documents, setDocuments] = useState<ManagedDocument[]>([]);
-  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message: string }>({ type: 'idle', message: '' });
   const [loadingDocs, setLoadingDocs] = useState<boolean>(false);
+  const [status, setStatus] = useState<{ 
+    type: 'idle' | 'loading' | 'success' | 'error'; 
+    message: string 
+  }>({ type: 'idle', message: '' });
 
-  // Fetch documents from LanceDB backend storage layout
+  // 1. Fetch document index list array from backend
   const fetchUploadedDocuments = async () => {
     setLoadingDocs(true);
     try {
-      const response = await axios.get('http://127.0.0.1:8000/admin/documents');
+      const response = await axios.get('http://localhost:8000/admin/documents');
       setDocuments(response.data.documents || []);
     } catch (error) {
       console.error("Could not fetch document index configuration list:", error);
@@ -26,14 +29,13 @@ export default function AdminPage() {
     }
   };
 
-  // Automatically fetch files when admin loads the module viewport
   useEffect(() => {
     fetchUploadedDocuments();
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      setFile(e.target.files[0]); // Explicitly binds single object context pointer
       setStatus({ type: 'idle', message: '' });
     }
   };
@@ -48,15 +50,33 @@ export default function AdminPage() {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/admin/upload-pdf', formData, {
+      const response = await axios.post('http://localhost:8000/admin/upload-pdf', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
+      
       setStatus({ type: 'success', message: response.data.message });
-      setFile(null);
-      // Refresh folder management list array view dynamically
-      fetchUploadedDocuments();
+      setFile(null); 
+      await fetchUploadedDocuments(); // Auto-refresh trigger
+      
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || 'Failed to connect to the AI engine server.';
+      setStatus({ type: 'error', message: errorMsg });
+    }
+  };
+  
+  const handleDeleteDocument = async (filename: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${filename}"? This removes its context from the AI permanently.`)) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: `Purging vectors for ${filename}...` });
+
+    try {
+      await axios.post('http://localhost:8000/admin/delete-document', { filename });
+      setStatus({ type: 'success', message: `Successfully removed ${filename} from database cache.` });
+      await fetchUploadedDocuments();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Failed to delete the selected file.';
       setStatus({ type: 'error', message: errorMsg });
     }
   };
@@ -64,7 +84,7 @@ export default function AdminPage() {
   return (
     <div className="max-w-4xl mx-auto mt-12 p-6 font-sans grid grid-cols-1 md:grid-cols-5 gap-6">
       
-      {/* LEFT COLUMN: Ingestion Module Input Panel Form */}
+      {/* INGESTION ENTRY PANEL FORM */}
       <div className="md:col-span-2 bg-white border rounded-xl p-5 shadow-sm h-fit">
         <h1 className="text-lg font-bold text-gray-800 mb-1">Data Ingestion</h1>
         <p className="text-xs text-gray-500 mb-4">Upload files for AI vector optimization layouts.</p>
@@ -99,7 +119,7 @@ export default function AdminPage() {
         )}
       </div>
 
-      {/* RIGHT COLUMN: Interactive Document Folder Structure Directory View */}
+      {/* DOCUMENT DIRECTORY VIEWER REPOSITORY PANEL */}
       <div className="md:col-span-3 bg-white border rounded-xl p-5 shadow-sm">
         <div className="flex justify-between items-center mb-3">
           <div>
@@ -130,10 +150,17 @@ export default function AdminPage() {
                       <p className="text-[10px] text-gray-400">Context File Structure Row Element</p>
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="shrink-0 flex items-center space-x-3">
                     <span className="inline-block bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-100">
                       {doc.total_chunks} vectors
                     </span>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.filename)}
+                      className="text-gray-400 hover:text-red-600 transition-colors p-1 text-xs"
+                      title="Delete document"
+                    >
+                      🗑️
+                    </button>
                   </div>
                 </div>
               ))}

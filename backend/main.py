@@ -1,9 +1,10 @@
 import os
 import shutil
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from langchain_unstructured import UnstructuredLoader as PyPDFLoader
+from pypdf import PdfReader  
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from prompts import get_system_instruction
@@ -14,7 +15,11 @@ app = FastAPI(title="Enterprise Local RAG Bot API")
 # --- MANDATORY CORS SECURITY CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  
+    allow_origins=[
+        "http://localhost:3000",   # Next.js via domain resolution
+        "http://127.0.0.1:3000",   # Next.js via raw loopback IP resolution
+        "http://[::1]:3000"        # Next.js via native IPv6 resolution
+    ],  
     allow_credentials=True,
     allow_methods=["*"],                      
     allow_headers=["*"],                      
@@ -25,19 +30,24 @@ DB_DIR = "./data/lancedb_data"
 os.makedirs(DB_DIR, exist_ok=True)
 db = lancedb.connect(DB_DIR)
 
-# Using nomic-embed-text running locally via Ollama
+# Using nomic-embed-text running locally via Ollama (Outputs 768 dimensions)
 embeddings_model = OllamaEmbeddings(model="nomic-embed-text")
 
 TABLE_NAME = "pdf_knowledge_base"
 
 def get_or_create_table():
-    if TABLE_NAME in db.table_names():
+    global db
+    try:
         return db.open_table(TABLE_NAME)
-    return None
+    except Exception:
+        return None
 
 # --- API Data Transfer Models ---
 class ChatQuery(BaseModel):
     question: str
+
+class DeleteDocRequest(BaseModel):
+    filename: str
 
 # --- 1. ADMIN ENDPOINT: Upload, Parse, and Embed PDF Locally ---
 @app.post("/admin/upload-pdf")
@@ -46,31 +56,44 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     temp_path = f"temp_{file.filename}"
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+    
     try:
-        loader = PyPDFLoader(temp_path)
-        docs = loader.load()
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # High-speed synchronous PDF string scraper abstraction
+        def extract_pdf_text(path):
+            reader = PdfReader(path)
+            full_text = ""
+            for page in reader.pages:
+                full_text += page.extract_text() or ""
+            return full_text
+
+        raw_text = await run_in_threadpool(extract_pdf_text, temp_path)
         
+        if not raw_text.strip():
+            raise HTTPException(status_code=400, detail="The uploaded PDF contains no readable text layers.")
+            
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        chunks = text_splitter.split_documents(docs)
+        texts = text_splitter.split_text(raw_text)
         
         records = []
-        for chunk in chunks:
-            vector = embeddings_model.embed_query(chunk.page_content)
+        for idx, chunk_content in enumerate(texts):
+            # Safe thread-bound concurrent async vectorizations
+            vector = await embeddings_model.aembed_query(chunk_content)
             
             records.append({
                 "vector": vector,
-                "text": chunk.page_content,
+                "text": chunk_content,
                 "source": file.filename,
-                "page": chunk.metadata.get("page", 0) + 1  
+                "page": 1  
             })
             
-        if TABLE_NAME in db.table_names():
+        # Multi-file dynamic safe appending strategy handler block
+        try:
             table = db.open_table(TABLE_NAME)
             table.add(records)
-        else:
+        except Exception:
             table = db.create_table(TABLE_NAME, data=records)
             
         return {
@@ -88,7 +111,6 @@ async def upload_pdf(file: UploadFile = File(...)):
 # --- 2. USER ENDPOINT: Query, Retrieve Vectors, and Chat Locally ---
 @app.post("/user/chat")
 async def chat_with_docs(query: ChatQuery):
-    # FALLBACK_TEXT is kept identical to your system prompt instruction requirements
     FALLBACK_TEXT = "I cannot find the complete details for this action in the uploaded documentation."
     
     # GUARDRAIL 1: Hard block off-topic coding / generic chat keywords immediately
@@ -99,13 +121,10 @@ async def chat_with_docs(query: ChatQuery):
 
     table = get_or_create_table()
     if not table:
-        raise HTTPException(status_code=404, detail="No documentation has been uploaded by an Admin yet.")
+        return {"answer": FALLBACK_TEXT, "citations": []}
         
     try:
-        query_vector = embeddings_model.embed_query(query.question)
-        
-        # Pull Top 3 closest structural reference chunks out of database
-        # We use .select() to ensure the vector distance field ('_distance') is included
+        query_vector = await embeddings_model.aembed_query(query.question)
         search_results = table.search(query_vector).select(["text", "source", "page"]).limit(3).to_pandas()
         
         if search_results.empty:
@@ -116,8 +135,6 @@ async def chat_with_docs(query: ChatQuery):
         valid_chunks_found = False
         
         for idx, row in search_results.iterrows():
-            # GUARDRAIL 2: LanceDB uses L2 (Euclidean) Distance by default.
-            # A distance greater than 1.25 typically means the text is totally unrelated to the question.
             if row.get('_distance', 0) > 1.25:
                 continue
                 
@@ -128,14 +145,13 @@ async def chat_with_docs(query: ChatQuery):
                 "page": int(row['page'])
             })
             
-        # If all retrieved chunks were poor matches, abort before hitting the LLM
         if not valid_chunks_found:
             return {"answer": FALLBACK_TEXT, "citations": []}
             
         system_instruction = get_system_instruction(context_str)
         
         llm = ChatOllama(model="llama3.2:1b", temperature=0.0)
-        ai_message = llm.invoke([
+        ai_message = await llm.ainvoke([
             ("system", system_instruction),
             ("user", query.question)
         ])
@@ -148,19 +164,18 @@ async def chat_with_docs(query: ChatQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- 3. ADMIN ENDPOINT: List unique uploaded document files ---
 @app.get("/admin/documents")
-async def list_documents():
+def list_documents():
     table = get_or_create_table()
     if not table:
         return {"documents": []}
         
     try:
-        # Query LanceDB and convert only the metadata columns to a Pandas DataFrame
         df = table.to_pandas()
         if df.empty:
             return {"documents": []}
             
-        # Group records by source file name to find chunk statistics
         summary = df.groupby('source').size().reset_index(name='chunks')
         
         documents_list = []
@@ -174,7 +189,21 @@ async def list_documents():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- 4. ADMIN ENDPOINT: Delete a specific file's vectors ---
+@app.post("/admin/delete-document")
+def delete_document(payload: DeleteDocRequest):
+    table = get_or_create_table()
+    if not table:
+        raise HTTPException(status_code=404, detail="Database table not initialized.")
         
+    try:
+        table.delete(f"source = '{payload.filename}'")
+        return {"status": "success", "message": f"Successfully deleted all vectors for '{payload.filename}'"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove targeted records: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

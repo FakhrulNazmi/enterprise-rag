@@ -1,12 +1,12 @@
 fastapi
 uvicorn[standard]
-langchain-unstructured
-unstructured
+langchain-text-splitters
 langchain-ollama
 lancedb
+pypdf
 pandas
 python-multipart
 
-# Testing Tools (Added for automated test execution consistency)
+# Automated Test Framework Architecture Dependencies
 pytest
 httpx2
