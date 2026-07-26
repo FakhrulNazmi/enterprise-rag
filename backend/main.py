@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings, ChatOllama
+from prompts import get_system_instruction
 import lancedb
 
 app = FastAPI(title="Enterprise Local RAG Bot API")
@@ -121,16 +122,7 @@ async def chat_with_docs(query: ChatQuery):
             })
             
         # Establish hallucination guardrails via system prompting architecture
-        system_instruction = (
-            "You are an expert enterprise operations support assistant. "
-            "Your goal is to provide highly detailed, comprehensive, step-by-step instructions based ONLY on the context blocks provided below.\n\n"
-            "CRITICAL INSTRUCTIONS:\n"
-            "1. Do NOT summarize or shorten the instructions. Explain every step thoroughly.\n"
-            "2. Match the language of the provided context text (e.g., if the manual is in Malay, provide your detailed response in Malay).\n"
-            "3. Format your response cleanly using bullet points, numbered lists, and bold text for clarity.\n"
-            "4. If the provided context does not explicitly explain the steps to answer the question, state: 'I cannot find the complete details for this action in the uploaded documentation.'\n\n"
-            f"Context:\n{context_str}"
-        )
+        system_instruction = get_system_instruction(context_str)
         
         # Invoke lightweight, fast local Llama 3.2 1B model
         llm = ChatOllama(model="llama3.2:1b", temperature=0.0)
