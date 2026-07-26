@@ -12,13 +12,12 @@ import lancedb
 app = FastAPI(title="Enterprise Local RAG Bot API")
 
 # --- MANDATORY CORS SECURITY CONFIGURATION ---
-# Allows your Next.js web application frontend to securely communicate with this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js local development address
+    allow_origins=["http://localhost:3000"],  
     allow_credentials=True,
-    allow_methods=["*"],                      # Allows all actions (POST, GET, OPTIONS, etc.)
-    allow_headers=["*"],                      # Allows all web transmission headers
+    allow_methods=["*"],                      
+    allow_headers=["*"],                      
 )
 
 # Initialize Local Vector DB and 100% Free Embedding Model
@@ -46,34 +45,28 @@ async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
-    # Save uploaded file to local file system layout temporarily
     temp_path = f"temp_{file.filename}"
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     try:
-        # Load and parse PDF pages
         loader = PyPDFLoader(temp_path)
         docs = loader.load()
         
-        # Split text into logical chunks with semantic overlap structures
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_documents(docs)
         
-        # Build local records array
         records = []
         for chunk in chunks:
-            # Generate the vector embedding locally using your hardware via Ollama
             vector = embeddings_model.embed_query(chunk.page_content)
             
             records.append({
                 "vector": vector,
                 "text": chunk.page_content,
                 "source": file.filename,
-                "page": chunk.metadata.get("page", 0) + 1  # 1-indexed for human readability
+                "page": chunk.metadata.get("page", 0) + 1  
             })
             
-        # Write directly to serverless LanceDB file tables on disk
         if TABLE_NAME in db.table_names():
             table = db.open_table(TABLE_NAME)
             table.add(records)
@@ -89,42 +82,58 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Remove raw physical footprint file from application server
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
 # --- 2. USER ENDPOINT: Query, Retrieve Vectors, and Chat Locally ---
 @app.post("/user/chat")
 async def chat_with_docs(query: ChatQuery):
+    # FALLBACK_TEXT is kept identical to your system prompt instruction requirements
+    FALLBACK_TEXT = "I cannot find the complete details for this action in the uploaded documentation."
+    
+    # GUARDRAIL 1: Hard block off-topic coding / generic chat keywords immediately
+    user_question_lower = query.question.lower()
+    off_topic_keywords = ["javascript", "python", "html", "css", "write code", "create a function", "what you eat"]
+    if any(keyword in user_question_lower for keyword in off_topic_keywords):
+        return {"answer": FALLBACK_TEXT, "citations": []}
+
     table = get_or_create_table()
     if not table:
         raise HTTPException(status_code=404, detail="No documentation has been uploaded by an Admin yet.")
         
     try:
-        # Vectorize the incoming question sequence locally
         query_vector = embeddings_model.embed_query(query.question)
         
         # Pull Top 3 closest structural reference chunks out of database
-        search_results = table.search(query_vector).limit(3).to_pandas()
+        # We use .select() to ensure the vector distance field ('_distance') is included
+        search_results = table.search(query_vector).select(["text", "source", "page"]).limit(3).to_pandas()
         
         if search_results.empty:
-            return {"answer": "No relevant system context was found to answer this question.", "citations": []}
+            return {"answer": FALLBACK_TEXT, "citations": []}
             
-        # Compile contextual inputs and map human structural references
         context_str = ""
         citations = []
+        valid_chunks_found = False
         
         for idx, row in search_results.iterrows():
+            # GUARDRAIL 2: LanceDB uses L2 (Euclidean) Distance by default.
+            # A distance greater than 1.25 typically means the text is totally unrelated to the question.
+            if row.get('_distance', 0) > 1.25:
+                continue
+                
+            valid_chunks_found = True
             context_str += f"\n[Context Section {idx+1} from {row['source']}, Page {row['page']}]:\n{row['text']}\n"
             citations.append({
                 "source_file": row['source'],
                 "page": int(row['page'])
             })
             
-        # Establish hallucination guardrails via system prompting architecture
+        # If all retrieved chunks were poor matches, abort before hitting the LLM
+        if not valid_chunks_found:
+            return {"answer": FALLBACK_TEXT, "citations": []}
+            
         system_instruction = get_system_instruction(context_str)
         
-        # Invoke lightweight, fast local Llama 3.2 1B model
         llm = ChatOllama(model="llama3.2:1b", temperature=0.0)
         ai_message = llm.invoke([
             ("system", system_instruction),
@@ -141,5 +150,4 @@ async def chat_with_docs(query: ChatQuery):
 
 if __name__ == "__main__":
     import uvicorn
-    # Boots server locally on port 8000
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
