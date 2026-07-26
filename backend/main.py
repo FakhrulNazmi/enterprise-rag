@@ -148,6 +148,33 @@ async def chat_with_docs(query: ChatQuery):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/admin/documents")
+async def list_documents():
+    table = get_or_create_table()
+    if not table:
+        return {"documents": []}
+        
+    try:
+        # Query LanceDB and convert only the metadata columns to a Pandas DataFrame
+        df = table.to_pandas()
+        if df.empty:
+            return {"documents": []}
+            
+        # Group records by source file name to find chunk statistics
+        summary = df.groupby('source').size().reset_index(name='chunks')
+        
+        documents_list = []
+        for _, row in summary.iterrows():
+            documents_list.append({
+                "filename": row['source'],
+                "total_chunks": int(row['chunks'])
+            })
+            
+        return {"documents": documents_list}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
