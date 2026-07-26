@@ -174,7 +174,29 @@ async def list_documents():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class DeleteDocRequest(BaseModel):
+    filename: str
+
+@app.post("/admin/delete-document")
+async def delete_document(payload: DeleteDocRequest):
+    table = get_or_create_table()
+    if not table:
+        raise HTTPException(status_code=404, detail="Database table not initialized.")
         
+    try:
+        # Wrap the filename in single quotes inside the SQL where-clause string
+        # This deletes only the chunks that originated from that specific PDF file
+        table.delete(f"source = '{payload.filename}'")
+        
+        # Double check if table is now completely empty to clean up cleanly
+        if len(table.to_pandas()) == 0:
+            db.drop_table(TABLE_NAME)
+            
+        return {"status": "success", "message": f"Successfully deleted all vectors for '{payload.filename}'"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove targeted records: {str(e)}")      
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

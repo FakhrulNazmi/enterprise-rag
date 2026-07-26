@@ -60,6 +60,24 @@ export default function AdminPage() {
       setStatus({ type: 'error', message: errorMsg });
     }
   };
+  
+  const handleDeleteDocument = async (filename: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${filename}"? This removes its context from the AI permanently.`)) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: `Purging vectors for ${filename}...` });
+
+    try {
+      await axios.post('http://localhost:8000/admin/delete-document', { filename });
+      setStatus({ type: 'success', message: `Successfully removed ${filename} from database cache.` });
+      // Refresh the repository list automatically
+      fetchUploadedDocuments();
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || 'Failed to delete the selected file.';
+      setStatus({ type: 'error', message: errorMsg });
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto mt-12 p-6 font-sans grid grid-cols-1 md:grid-cols-5 gap-6">
@@ -130,10 +148,18 @@ export default function AdminPage() {
                       <p className="text-[10px] text-gray-400">Context File Structure Row Element</p>
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="shrink-0 flex items-center space-x-3">
                     <span className="inline-block bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-100">
                       {doc.total_chunks} vectors
                     </span>
+                    {/* TARGETED FILE DELETION INTERFACE REFACTOR TRIGGER */}
+                    <button
+                      onClick={() => handleDeleteDocument(doc.filename)}
+                      className="text-gray-400 hover:text-red-600 transition-colors p-1 text-xs"
+                      title="Delete document"
+                    >
+                      🗑️
+                    </button>
                   </div>
                 </div>
               ))}
