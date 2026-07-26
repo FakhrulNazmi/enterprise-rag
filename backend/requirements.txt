@@ -1,8 +1,12 @@
 fastapi
-uvicorn
-langchain-community
+uvicorn[standard]
+langchain-unstructured
+unstructured
 langchain-ollama
 lancedb
-pypdf
 pandas
 python-multipart
+
+# Testing Tools (Added for automated test execution consistency)
+pytest
+httpx2
