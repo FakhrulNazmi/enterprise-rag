@@ -55,7 +55,7 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-screen max-w-4xl mx-auto p-4 font-sans">
       <header className="border-b pb-4 mb-4">
-        <h1 className="text-2xl font-bold text-gray-800">Enterprise AI Order Assistant</h1>
+        <h1 className="text-2xl font-bold text-gray-800">SoloRAG</h1>
         <p className="text-sm text-gray-500">Ask how to process orders based on Admin-uploaded documentation.</p>
       </header>
 

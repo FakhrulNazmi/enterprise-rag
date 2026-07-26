@@ -10,7 +10,7 @@ from langchain_ollama import OllamaEmbeddings, ChatOllama
 from prompts import get_system_instruction
 import lancedb
 
-app = FastAPI(title="Enterprise Local RAG Bot API")
+app = FastAPI(title="SoloRAG Core Engine API")
 
 # --- MANDATORY CORS SECURITY CONFIGURATION ---
 app.add_middleware(

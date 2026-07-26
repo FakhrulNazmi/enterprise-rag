@@ -1,4 +1,4 @@
-# Enterprise Local RAG Web Assistant
+# SoloRAG Local RAG Web Assistant
 
 A full-stack, 100% free, privacy-first **Retrieval-Augmented Generation (RAG)** web application designed for corporate internal knowledge ingestion. Administrators can securely parse operational manuals or order processing PDFs, allowing users to query documentation via local AI with exact page-level source citations.
 
